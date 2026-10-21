@@ -48,6 +48,7 @@ function studentState(id,token){
  if(s.status!=="running"||completed)return st;
  const level=s.bank.levels[t.level],q=question_(s,t),question={type:q.type,prompt:q.prompt};
  if(q.options)question.options=q.options.slice();
+ if(q.corrections)question.corrections=q.corrections.slice();
  if(q.left)question.left=q.left.slice();
  if(q.right)question.right=q.right.slice();
  if(q.items)question.items=q.items.slice();
@@ -66,6 +67,8 @@ function answerQuestion(id,token,ans,expectedLevel,expectedQuestion){
   else if(q.type==="multiple")correct=sameNumbers_(ans,q.correct);
   else if(q.type==="matching")correct=sameNumbers_(ans,q.correct);
   else if(q.type==="ordering")correct=Array.isArray(ans)&&ans.length===q.correct.length&&ans.every(Number.isInteger)&&ans.every((v,i)=>v===q.correct[i]);
+  else if(q.type==="spotError")correct=!!ans&&typeof ans==="object"&&ans.errorIndex===q.correct&&ans.correctionIndex===q.correctCorrection;
+  else if(q.type==="shortAnswer")correct=typeof ans==="string"&&q.answers.some(v=>normalizeAnswer_(v)===normalizeAnswer_(ans));
   else throw Error("Невідомий тип питання");
   if(!correct){t.levelErrors++;store_(s);return {correct:false,message:"Є помилка. Обговоріть відповідь і спробуйте ще раз. Бонус за рівень уже втрачено."};}
   const base=level.points;t.score+=base;t.completedQuestions++;t.question++;
@@ -84,6 +87,7 @@ function teacherState(id,pin){
   lockSeconds:0
  }))};
 }
+function normalizeAnswer_(v){return String(v||"").trim().toLocaleLowerCase().replace(/\s+/g," ");}
 function teacherAdjust(id,pin,tid,delta){return guard_(()=>{const s=load_(id);auth_(s,pin);const t=s.teams.find(x=>x.id===tid);delta=Number(delta);if(!t||!Number.isFinite(delta)||Math.abs(delta)>1000)throw Error("Невірні дані");t.score=Math.max(0,t.score+Math.round(delta));store_(s);return true;});}
 function teacherUnlock(id,pin,tid){return guard_(()=>{const s=load_(id);auth_(s,pin);const t=s.teams.find(x=>x.id===tid);if(!t)throw Error("Команду не знайдено");t.lockUntil=0;store_(s);return true;});}
 function teacherControl(id,pin,action){return guard_(()=>{const s=load_(id);auth_(s,pin);if(action==="pause"&&s.status==="running")s.status="paused";else if(action==="resume"&&s.status==="paused")s.status="running";else if(action==="finish"&&["running","paused"].includes(s.status))s.status="finished";else throw Error("Дія недоступна");store_(s);return true;});}
@@ -97,8 +101,8 @@ function validateBank_(input){
  const text=(v,max,label)=>{if(typeof v!=="string"||!v.trim()||v.length>max)fail(label);return v.trim();};
  const indexes=(a,min,max,size,label)=>{if(!Array.isArray(a)||a.length<min||a.length>max||a.some(x=>!Number.isInteger(x)||x<0||x>=size)||new Set(a).size!==a.length)fail(label);return a.slice();};
  const title=text(input.title,120,"вкажіть назву до 120 символів");
- if(!Array.isArray(input.levels)||input.levels.length!==3)fail("потрібно рівно 3 рівні");
- const rules=[{count:6,type:"single",points:10,bonus:10},{count:3,type:"multiple",points:20,bonus:20},{count:3,type:null,points:30,bonus:30}];
+ if(!Array.isArray(input.levels)||input.levels.length!==5)fail("потрібно рівно 5 рівнів");
+ const rules=[{count:6,type:"single",points:10,bonus:10},{count:3,type:"multiple",points:20,bonus:20},{count:3,type:null,points:30,bonus:30},{count:3,type:"spotError",points:40,bonus:40},{count:3,type:"shortAnswer",points:50,bonus:50}];
  const levels=input.levels.map((l,li)=>{
   const rule=rules[li],label="рівень "+(li+1)+": ";
   if(!l||typeof l!=="object"||!Array.isArray(l.questions)||l.questions.length!==rule.count)fail(label+"має бути рівно "+rule.count+" питань");
@@ -126,7 +130,22 @@ function validateBank_(input){
     const items=q.items.map(v=>text(v,300,where+"порожній елемент"));
     return {type,prompt,items,correct:indexes(q.correct,items.length,items.length,items.length,where+"correct має бути повною послідовністю індексів")};
    }
-   fail(where+"type має бути matching або ordering");
+   if(li===3){
+    if(type!=="spotError")fail(where+"тип четвертого рівня має бути spotError");
+    if(!Array.isArray(q.options)||q.options.length<3||q.options.length>8)fail(where+"spotError потребує 3–8 тверджень");
+    const options=q.options.map(v=>text(v,1000,where+"порожнє твердження"));
+    if(!Number.isInteger(q.correct)||q.correct<0||q.correct>=options.length)fail(where+"correct — індекс помилкового твердження від 0");
+    if(!Array.isArray(q.corrections)||q.corrections.length<2||q.corrections.length>8)fail(where+"додайте 2–8 варіантів виправлення");
+    const corrections=q.corrections.map(v=>text(v,1000,where+"порожній варіант виправлення"));
+    if(!Number.isInteger(q.correctCorrection)||q.correctCorrection<0||q.correctCorrection>=corrections.length)fail(where+"correctCorrection — індекс правильного виправлення від 0");
+    return {type,prompt,options,correct:q.correct,corrections,correctCorrection:q.correctCorrection};
+   }
+   if(li===4){
+    if(type!=="shortAnswer")fail(where+"тип п’ятого рівня має бути shortAnswer");
+    if(!Array.isArray(q.answers)||q.answers.length<1||q.answers.length>10)fail(where+"shortAnswer потребує 1–10 прийнятних відповідей");
+    return {type,prompt,answers:q.answers.map(v=>text(v,300,where+"порожній варіант відповіді"))};
+   }
+   fail(where+"невідомий тип питання");
   });
   return {title:text(l.title||("Рівень "+(li+1)),80,label+"назва"),points:rule.points,bonus:rule.bonus,questions};
  });

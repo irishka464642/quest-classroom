@@ -70,7 +70,14 @@ function answerQuestion(id,token,ans,expectedLevel,expectedQuestion){
   else if(q.type==="spotError")correct=!!ans&&typeof ans==="object"&&ans.errorIndex===q.correct&&ans.correctionIndex===q.correctCorrection;
   else if(q.type==="shortAnswer")correct=typeof ans==="string"&&q.answers.some(v=>normalizeAnswer_(v)===normalizeAnswer_(ans));
   else throw Error("Невідомий тип питання");
-  if(!correct){t.levelErrors++;store_(s);return {correct:false,message:"Є помилка. Обговоріть відповідь і спробуйте ще раз. Бонус за рівень уже втрачено."};}
+  if(!correct){
+   t.levelErrors++;t.completedQuestions++;t.question++;
+   let bonus=0,levelComplete=t.question>=level.questions.length;
+   if(levelComplete){if(t.levelErrors===0){bonus=level.bonus;t.score+=bonus;}t.level++;t.question=0;t.levelErrors=0;}
+   store_(s);
+   return {correct:false,base:0,bonus,levelComplete,completed:t.level>=s.bank.levels.length,
+    message:"Неправильно. Спробу зараховано, виправити відповідь уже не можна. Бонус за рівень втрачено."};
+  }
   const base=level.points;t.score+=base;t.completedQuestions++;t.question++;
   let bonus=0,levelComplete=t.question>=level.questions.length;
   if(levelComplete){if(t.levelErrors===0){bonus=level.bonus;t.score+=bonus;}t.level++;t.question=0;t.levelErrors=0;}

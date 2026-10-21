@@ -6,7 +6,7 @@
 <script>
 const $=id=>document.getElementById(id);let sid="",pin="",token="",mode="",timer=null,last=null,answerDraft=null,correctionDraft=null,shortDraft="",multiDraft=[],matchDraft=[],orderDraft=[],lastLevel=-1,lastQuestion=-1,loading=false,siteUrl=localStorage.getItem("qc_deployment_url")||"";
 const GRADE_BANDS=[[0,28,1],[29,85,2],[86,143,3],[144,200,4],[201,257,5],[258,314,6],[315,372,7],[373,429,8],[430,486,9],[487,544,10],[545,601,11],[602,630,12]];
-function gradeForScore(score){const row=GRADE_BANDS.find(([min,max])=>score>=min&&score<=max);return row?row[2]:1}
+function gradeForScore(score){score=Math.max(0,Math.min(630,Number(score)||0));const row=GRADE_BANDS.find(([min,max])=>score>=min&&score<=max);return row?row[2]:1}
 function gradeTableHtml(){return '<details class="card"><summary>Таблиця переведення ігрових балів в оцінку</summary><p class="muted">Оцінка враховує ігрові бали разом із бонусами. Максимум — 630 балів.</p><div class="scroll"><table><thead><tr><th>Ігрові бали</th><th>Оцінка</th></tr></thead><tbody>'+GRADE_BANDS.map(([min,max,grade])=>'<tr><td>'+min+'–'+max+'</td><td>'+grade+'</td></tr>').join('')+'</tbody></table></div></details>'}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function toast(s,err=false){const el=$("toast");el.textContent=s;el.style.display="block";el.style.background=err?"#803346":"#294c5a";setTimeout(()=>el.style.display="none",12000)}

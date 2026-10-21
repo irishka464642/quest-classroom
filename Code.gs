@@ -4,6 +4,7 @@ function rand_(n){return Math.floor(Math.random()*n);}
 function shuffle_(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=rand_(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
 function clean_(v,max){return String(v||"").trim().replace(/[<>]/g,"").slice(0,max||80);}
 function uid_(){return Utilities.getUuid().replace(/-/g,"");}
+function recoveryCode_(s){let code;do{code=String(parseInt(uid_().slice(0,8),16)%1000000).padStart(6,"0");}while(s.teams.some(t=>t.recovery===code));return code;}
 function doGet(){return HtmlService.createHtmlOutputFromFile("Index").setTitle("Quest Classroom").addMetaTag("viewport","width=device-width,initial-scale=1");}
 function folder_(){const props=PropertiesService.getScriptProperties();let id=props.getProperty("QC_FOLDER");if(!id){id=DriveApp.createFolder("Quest Classroom — sessions").getId();props.setProperty("QC_FOLDER",id);}return DriveApp.getFolderById(id);}
 function sessionFile_(id){if(!/^[a-f0-9]{14}$/.test(String(id)))throw Error("Некоректний код сесії");const files=folder_().getFilesByName(PREFIX+id+".json");return files.hasNext()?files.next():null;}
@@ -27,7 +28,7 @@ function registerTeam(id,tid,name,surnames){return guard_(()=>{
  const members=surnames.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);
  if(members.length<1||members.length>10||members.some(v=>v.length<2||v.length>80||/[<>\x00-\x1f]/.test(v)))throw Error("У команді має бути 1–10 учасників; кожне прізвище — окремим рядком, 2–80 символів");
  // Identical surnames are allowed: classmates may share a surname.
- t.name=name;t.members=members;t.access=uid_();t.recovery=uid_().slice(0,12);store_(s);return {token:t.access,recovery:t.recovery};
+ t.name=name;t.members=members;t.access=uid_();t.recovery=recoveryCode_(s);store_(s);return {token:t.access,recovery:t.recovery};
 });}
 function recoverTeam(id,tid,code){return guard_(()=>{
  const s=load_(id),t=s.teams.find(x=>x.id===tid);if(!t||!t.access||t.recovery!==String(code).trim())throw Error("Невірний код відновлення");

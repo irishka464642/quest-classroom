@@ -64,8 +64,7 @@ function answer(teamToken, allowMistakes=false){
 }
 answer(token,true);answer(token2,false);
 assert(ctx.studentState(id,token).completed);assert(ctx.studentState(id,token2).completed);
-assert.equal(ctx.studentState(id,token).answerKey.length,5,'answer key appears after full game completion');
-assert.match(ctx.studentState(id,token).answerKey[0].questions[0].answer,/Знайти надійне джерело/);
+assert.equal(ctx.studentState(id,token).answerKey,undefined,'completed teams wait until the teacher ends the whole session');
 assert.equal(ctx.teacherState(id,'1234').teams[0].score,530,'wrong answers earn no points and remove only their level bonuses');
 assert.equal(ctx.teacherState(id,'1234').teams[1].score,630,'perfect run earns all points and bonuses');
 assert.equal(ctx.teacherState(id,'1234').teams[0].completedQuestions,18);
@@ -75,9 +74,12 @@ assert(archive['xl/worksheets/sheet1.xml'].includes('Шевченко; Кова�
 assert(archive['xl/worksheets/sheet2.xml'].includes('=HYPERLINK(&quot;test&quot;)'));
 assert(!archive['xl/worksheets/sheet2.xml'].includes('<f>'));
 assert(archive['xl/worksheets/sheet1.xml'].includes('<v>530</v>'));
-assert(archive['xl/worksheets/sheet2.xml'].includes('Питань завершено'));
+assert(archive['xl/worksheets/sheet2.xml'].includes('Спроб використано'));
 if(process.env.QC_TEST_PARTS)fs.writeFileSync(process.env.QC_TEST_PARTS,JSON.stringify(archive));
 const other=ctx.createSession(1,{...bank,title:'Інша тема'},'5678').id;
 assert.equal(ctx.publicState(other).title,'Інша тема');assert.equal(ctx.publicState(id).title,bank.title);
-ctx.teacherControl(id,'1234','finish');ctx.teacherDelete(id,'1234');assert.throws(()=>ctx.publicState(id));assert.equal(ctx.publicState(other).status,'lobby');
+ctx.teacherControl(id,'1234','finish');
+assert.equal(ctx.studentState(id,token).answerKey.length,5,'answer key is released to all teams after session finish');
+assert.match(ctx.studentState(id,token).answerKey[0].questions[0].answer,/Знайти надійне джерело/);
+ctx.teacherDelete(id,'1234');assert.throws(()=>ctx.publicState(id));assert.equal(ctx.publicState(other).status,'lobby');
 console.log('PASS: v2 schema, 5 levels and 18 questions across all types, team registration, recovery, single-attempt answers, scoring and bonuses, privacy, XLSX export, isolation and deletion');

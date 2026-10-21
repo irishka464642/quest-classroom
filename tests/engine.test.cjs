@@ -3,6 +3,7 @@ const root=require('node:path').join(__dirname,'..');
 const server=fs.readFileSync(root+'/Code.gs','utf8'),html=fs.readFileSync(root+'/Index.html','utf8');
 new vm.Script(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
 assert(!html.includes('answerMission'));
+assert.match(html,/if\(s\.status==="finished"\)clearTimeout\(timer\);else loop\(\)/,'completed teams keep polling until the teacher ends the session');
 const files=new Map(),props=new Map();let archive;
 const folder={getId:()=> 'folder',getFilesByName(name){let f=files.get(name),used=false;return {hasNext:()=>!!f&&!used&&!f.trashed,next(){used=true;return f}}},createFile(name,data){const f={data,setContent(d){this.data=d},getBlob(){return {getDataAsString:()=>this.data}},setTrashed(v){this.trashed=v}};files.set(name,f);return f}};
 const ctx=vm.createContext({console,Utilities:{getUuid:()=>crypto.randomUUID(),newBlob:(data,type,name)=>({data,type,name}),zip(parts){archive=Object.fromEntries(parts.map(p=>[p.name,p.data]));return {getBytes:()=>Buffer.from('test zip')}},base64Encode:b=>Buffer.from(b).toString('base64')},PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k),setProperty:(k,v)=>props.set(k,v)})},DriveApp:{createFolder:()=>folder,getFolderById:()=>folder},MimeType:{PLAIN_TEXT:'text/plain'},LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})}});

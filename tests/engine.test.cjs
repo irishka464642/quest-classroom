@@ -34,6 +34,7 @@ ctx.teacherStart(id,'1234');assert.throws(()=>ctx.registerTeam(id,'t2','Запі
 assert(!('role' in ctx.studentState(id,token)));
 assert(!JSON.stringify(ctx.studentState(id,token)).includes('correct'));
 assert.equal(ctx.studentState(id,token).question.type,'single');
+assert.equal(ctx.studentState(id,token).answerKey,undefined,'answer key stays hidden until completion');
 ctx.teacherControl(id,'1234','pause');assert.throws(()=>ctx.answerQuestion(id,token,0,0,0));ctx.teacherControl(id,'1234','resume');
 function expectedAnswer(q){
  if(q.type==="spotError")return {errorIndex:q.correct,correctionIndex:q.correctCorrection};
@@ -50,19 +51,21 @@ function answer(teamToken, allowMistakes=false){
    const shouldMissFix=allowMistakes&&q.type==="spotError"&&qi===0;
    if(shouldMissFirst||shouldMissFix){
     const wrong=shouldMissFix?{errorIndex:q.correct,correctionIndex:(q.correctCorrection+1)%q.corrections.length}:q.type==="single"?(q.correct===0?1:0):q.type==="multiple"?[0,1]:q.type==="matching"?q.correct.map((_,i)=>i===0?0:i):q.type==="ordering"?q.correct.slice().reverse():q.type==="spotError"?{errorIndex:q.correct,correctionIndex:(q.correctCorrection+1)%q.corrections.length}:"неправильна відповідь";
-    const result=ctx.answerQuestion(id,teamToken,wrong,levelIndex,qi);assert.equal(result.correct,false);
+    const result=ctx.answerQuestion(id,teamToken,wrong,levelIndex,qi);assert.equal(result.correct,false);assert.equal(result.correctAnswer,undefined);
     assert.equal(ctx.studentState(id,teamToken).questionIndex,qi+1,'a submitted wrong answer advances without retry');
     assert.throws(()=>ctx.answerQuestion(id,teamToken,value,levelIndex,qi),'the submitted question cannot be answered again');
     if(shouldMissFirst)first=false;
     continue;
    }
    const result=ctx.answerQuestion(id,teamToken,value,levelIndex,qi);
-   assert.equal(result.correct,true);
+   assert.equal(result.correct,true);assert.equal(result.correctAnswer,undefined);
   }
  }
 }
 answer(token,true);answer(token2,false);
 assert(ctx.studentState(id,token).completed);assert(ctx.studentState(id,token2).completed);
+assert.equal(ctx.studentState(id,token).answerKey.length,5,'answer key appears after full game completion');
+assert.match(ctx.studentState(id,token).answerKey[0].questions[0].answer,/Знайти надійне джерело/);
 assert.equal(ctx.teacherState(id,'1234').teams[0].score,530,'wrong answers earn no points and remove only their level bonuses');
 assert.equal(ctx.teacherState(id,'1234').teams[1].score,630,'perfect run earns all points and bonuses');
 assert.equal(ctx.teacherState(id,'1234').teams[0].completedQuestions,18);

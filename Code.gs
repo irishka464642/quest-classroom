@@ -1,10 +1,9 @@
-function caseTask_(s,t){return question_(s,t).research[t.variants[t.stage]];}
 const PREFIX="qc_v1_";
 function rand_(n){return Math.floor(Math.random()*n);}
-function shuffle_(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=rand_(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
 function clean_(v,max){return String(v||"").trim().replace(/[<>]/g,"").slice(0,max||80);}
 function uid_(){return Utilities.getUuid().replace(/-/g,"");}
 function recoveryCode_(s){let code;do{code=String(parseInt(uid_().slice(0,8),16)%1000000).padStart(6,"0");}while(s.teams.some(t=>t.recovery===code));return code;}
+function totalQuestions_(bank){return bank.levels.reduce((n,l)=>n+l.questions.length,0);}
 function doGet(){return HtmlService.createHtmlOutputFromFile("Index").setTitle("Quest Classroom").addMetaTag("viewport","width=device-width,initial-scale=1");}
 function folder_(){const props=PropertiesService.getScriptProperties();let id=props.getProperty("QC_FOLDER");if(!id){id=DriveApp.createFolder("Quest Classroom — sessions").getId();props.setProperty("QC_FOLDER",id);}return DriveApp.getFolderById(id);}
 function sessionFile_(id){if(!/^[a-f0-9]{14}$/.test(String(id)))throw Error("Некоректний код сесії");const files=folder_().getFilesByName(PREFIX+id+".json");return files.hasNext()?files.next():null;}
@@ -12,7 +11,7 @@ function store_(s){const data=JSON.stringify(s),f=sessionFile_(s.id);if(f)f.setC
 function load_(id){const f=sessionFile_(id);if(!f)throw Error("Сесію не знайдено");return JSON.parse(f.getBlob().getDataAsString());}
 function guard_(f){const l=LockService.getScriptLock();l.waitLock(20000);try{return f();}finally{l.releaseLock();}}
 function auth_(s,pin){if(s.pin!==String(pin))throw Error("Невірний PIN");}
-function team_(i){return {id:"t"+(i+1),name:"Команда "+(i+1),members:[],access:null,score:0,stage:0,step:0,tries:0,variants:[],pending:null,lockUntil:0};}
+function team_(i){return {id:"t"+(i+1),name:"Команда "+(i+1),members:[],access:null,score:0,level:0,question:0,completedQuestions:0,levelErrors:0};}
 function createSession(count,bank,pin){return guard_(()=>{
  count=Number(count);if(!Number.isInteger(count)||count<1||count>20)throw Error("Кількість команд: 1–20");
  pin=String(pin||"");if(!/^\d{4,8}$/.test(pin))throw Error("PIN: 4–8 цифр");
@@ -38,78 +37,53 @@ function find_(s,token){const t=s.teams.find(t=>t.access&&t.access===token);if(!
 function teacherStart(id,pin){return guard_(()=>{
  const s=load_(id);auth_(s,pin);if(s.status!=="lobby")throw Error("Гру вже почато");
  if(s.teams.some(t=>!t.access))throw Error("Дочекайтеся реєстрації всіх команд");
- s.teams.forEach(t=>{t.variants=s.bank.rounds.map(r=>rand_(r.cases.length));});s.status="running";store_(s);return true;
+ s.status="running";store_(s);return true;
 });}
-function question_(s,t){return s.bank.rounds[t.stage];}
+function question_(s,t){return s.bank.levels[t.level].questions[t.question];}
 function studentState(id,token){
  const s=load_(id),{t}=find_(s,token);
- const step=t.step||0;
- const st={status:s.status,team:t.name,recovery:t.recovery,score:t.score,stage:t.stage,step,total:s.bank.rounds.length,
-  lockSeconds:Math.max(0,Math.ceil((t.lockUntil-Date.now())/1000)),pending:!!t.pending,episode:s.episode,title:s.bank.title,nameChanged:true};
- if(s.status!=="running"||t.stage>=s.bank.rounds.length){st.completed=t.stage>=s.bank.rounds.length;return st;}
- const q=question_(s,t),c=q.cases[t.variants[t.stage]],tasks=["",q.justify];
- st.info=q.info;
- st.mission={title:q.title||"Місія "+(t.stage+1),step,prompt:c[0],options:step===1?c[1]:[],research:caseTask_(s,t),justify:tasks[1],review:!!q.review};
+ const completed=t.level>=s.bank.levels.length;
+ const st={status:s.status,team:t.name,recovery:t.recovery,score:t.score,level:t.level,questionIndex:t.question,
+  completedQuestions:t.completedQuestions,totalQuestions:totalQuestions_(s.bank),title:s.bank.title,completed};
+ if(s.status!=="running"||completed)return st;
+ const level=s.bank.levels[t.level],q=question_(s,t),question={type:q.type,prompt:q.prompt};
+ if(q.options)question.options=q.options.slice();
+ if(q.left)question.left=q.left.slice();
+ if(q.right)question.right=q.right.slice();
+ if(q.items)question.items=q.items.slice();
+ st.levelTitle=level.title;st.levelQuestion=t.question+1;st.levelTotal=level.questions.length;
+ st.pointsPerQuestion=level.points;st.question=question;
  return st;
 }
-function nextStage_(s,t){
- t.stage++;t.step=0;t.tries=0;t.evidence="";
- 
-}
-function answerMission(id,token,ans,expectedStage,expectedStep){
+function sameNumbers_(a,b){return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every(Number.isInteger)&&new Set(a).size===a.length&&a.slice().sort((x,y)=>x-y).every((v,i)=>v===b.slice().sort((x,y)=>x-y)[i]);}
+function answerQuestion(id,token,ans,expectedLevel,expectedQuestion){
  return guard_(()=>{
   const s=load_(id),{t}=find_(s,token);
-  if(s.status!=="running"||t.pending||t.stage>=s.bank.rounds.length||t.lockUntil>Date.now())throw Error("Зараз відповідь недоступна");
-  const q=question_(s,t),c=q.cases[t.variants[t.stage]],step=t.step||0;
-  if(expectedStage!==t.stage||expectedStep!==step)throw Error("Етап уже змінився. Оновіть екран.");
-  if(step===0){
-   const fields=ans&&typeof ans==="object"&&!Array.isArray(ans)?ans:null;
-   if(!fields)throw Error("Заповніть чотири поля дослідження.");
-   const device=clean_(fields.device,120),purpose=clean_(fields.purpose,240),
-    specs=clean_(fields.specs,350),source=clean_(fields.source,300);
-   if(device.length<3)throw Error("Поле 1: назвіть об’єкт дослідження.");
-   if(purpose.length<15)throw Error("Поле 2: поясніть призначення (від 15 символів).");
-   if(specs.length<20)throw Error("Поле 3: наведіть два факти або характеристики (від 20 символів).");
-   if(source.length<6)throw Error("Поле 4: зазначте джерело (сайт, виробника або підручник).");
-   const evidence="Об’єкт дослідження: "+device+"\nПризначення: "+purpose+"\nДокази: "+specs+"\nДжерело: "+source;
-   t.evidence=evidence;t.step=1;store_(s);
-   return {message:"Дослідження збережено. Далі — діагностика.",correct:true};
-  }
-  if(step===1){
-   const a=Number(ans);
-   if(!Number.isInteger(a)||a<0||a>=c[1].length)throw Error("Оберіть відповідь");
-   if(a!==c[2]){t.tries++;store_(s);return {message:"Рішення не підходить. Зіставте досьє та дослідження; спробуйте ще.",correct:false};}
-   const points=Math.max(30,100-t.tries*30);
-   t.score+=points;t.tries=0;t.step=2;store_(s);
-   return {message:"Діагностику пройдено! +"+points+" балів. Тепер захистіть рішення.",correct:true};
-  }
-  if(step===2){
-   const explanation=clean_(ans,1200);
-   if(explanation.length<95)throw Error("Аргументація має містити щонайменше 95 символів.");
-   if(q.review){
-    t.pending={stage:t.stage,answerText:explanation,evidence:t.evidence};
-    store_(s);return {message:"Рішення передано вчителю на перевірку.",correct:null};
-   }
-   // Text is recorded as work evidence; it is NOT automatically considered correct or awarded points.
-   if(!t.reflections)t.reflections=[];
-   t.reflections.push({stage:t.stage,evidence:t.evidence,explanation});
-   nextStage_(s,t);store_(s);return {message:"Аргументацію збережено. Перехід до нової місії (без автоматичної оцінки тексту).",correct:true};
-  }
-  throw Error("Невідомий етап");
+  if(s.status!=="running"||t.level>=s.bank.levels.length)throw Error("Зараз відповідь недоступна");
+  if(expectedLevel!==t.level||expectedQuestion!==t.question)throw Error("Питання вже змінилося. Оновіть екран.");
+  const level=s.bank.levels[t.level],q=question_(s,t);let correct=false;
+  if(q.type==="single")correct=Number.isInteger(ans)&&ans===q.correct;
+  else if(q.type==="multiple")correct=sameNumbers_(ans,q.correct);
+  else if(q.type==="matching")correct=sameNumbers_(ans,q.correct);
+  else if(q.type==="ordering")correct=Array.isArray(ans)&&ans.length===q.correct.length&&ans.every(Number.isInteger)&&ans.every((v,i)=>v===q.correct[i]);
+  else throw Error("Невідомий тип питання");
+  if(!correct){t.levelErrors++;store_(s);return {correct:false,message:"Є помилка. Обговоріть відповідь і спробуйте ще раз. Бонус за рівень уже втрачено."};}
+  const base=level.points;t.score+=base;t.completedQuestions++;t.question++;
+  let bonus=0,levelComplete=t.question>=level.questions.length;
+  if(levelComplete){if(t.levelErrors===0){bonus=level.bonus;t.score+=bonus;}t.level++;t.question=0;t.levelErrors=0;}
+  store_(s);
+  return {correct:true,base,bonus,levelComplete,completed:t.level>=s.bank.levels.length,
+   message:"Правильно! +"+base+(bonus?" і бонус рівня +"+bonus:"")+" балів."};
  });
 }
 function teacherState(id,pin){
  const s=load_(id);auth_(s,pin);
- return {status:s.status,id:s.id,episode:s.episode,title:s.bank.title,total:s.bank.rounds.length,teams:s.teams.map(t=>({
-  id:t.id,name:t.name,registered:!!t.access,recovery:t.recovery||"",stage:t.stage,step:t.step||0,score:t.score,
+ return {status:s.status,id:s.id,title:s.bank.title,total:totalQuestions_(s.bank),levels:s.bank.levels.length,teams:s.teams.map(t=>({
+  id:t.id,name:t.name,registered:!!t.access,recovery:t.recovery||"",level:t.level,question:t.question,completedQuestions:t.completedQuestions,score:t.score,
   members:t.members.slice(),
-  pending:t.pending?{title:question_(s,t).cases[t.variants[t.stage]][0],
-    answer:t.pending.answerText,expected:"Перевірте докази, логіку рішення й відповідність умовам.",
-    evidence:t.pending.evidence}:null,
-  lockSeconds:Math.max(0,Math.ceil((t.lockUntil-Date.now())/1000)),emergency:!!t.emergency
+  lockSeconds:0
  }))};
 }
-function teacherReview(id,pin,tid,points,accept){return guard_(()=>{const s=load_(id);auth_(s,pin);const t=s.teams.find(x=>x.id===tid);if(!t||!t.pending)throw Error("Немає відповіді");if(s.status!=="running")throw Error("Перевірка доступна під час гри");if(accept){points=Number(points);if(!Number.isFinite(points)||points<0||points>100)throw Error("Бали 0–100");t.score+=Math.round(points);if(!t.reflections)t.reflections=[];t.reflections.push({...t.pending,points:Math.round(points)});nextStage_(s,t);}t.pending=null;store_(s);return true;});}
 function teacherAdjust(id,pin,tid,delta){return guard_(()=>{const s=load_(id);auth_(s,pin);const t=s.teams.find(x=>x.id===tid);delta=Number(delta);if(!t||!Number.isFinite(delta)||Math.abs(delta)>1000)throw Error("Невірні дані");t.score=Math.max(0,t.score+Math.round(delta));store_(s);return true;});}
 function teacherUnlock(id,pin,tid){return guard_(()=>{const s=load_(id);auth_(s,pin);const t=s.teams.find(x=>x.id===tid);if(!t)throw Error("Команду не знайдено");t.lockUntil=0;store_(s);return true;});}
 function teacherControl(id,pin,action){return guard_(()=>{const s=load_(id);auth_(s,pin);if(action==="pause"&&s.status==="running")s.status="paused";else if(action==="resume"&&s.status==="paused")s.status="running";else if(action==="finish"&&["running","paused"].includes(s.status))s.status="finished";else throw Error("Дія недоступна");store_(s);return true;});}
@@ -119,25 +93,44 @@ function appUrl(){return ScriptApp.getService().getUrl();}
 
 function validateBank_(input){
  const fail=m=>{throw Error("Файл завдань: "+m);};
- if(!input||typeof input!=="object"||input.version!==1)fail("потрібен формат version: 1");
+ if(!input||typeof input!=="object"||input.version!==2)fail("потрібен формат version: 2");
  const text=(v,max,label)=>{if(typeof v!=="string"||!v.trim()||v.length>max)fail(label);return v.trim();};
+ const indexes=(a,min,max,size,label)=>{if(!Array.isArray(a)||a.length<min||a.length>max||a.some(x=>!Number.isInteger(x)||x<0||x>=size)||new Set(a).size!==a.length)fail(label);return a.slice();};
  const title=text(input.title,120,"вкажіть назву до 120 символів");
- if(!Array.isArray(input.rounds)||input.rounds.length<1||input.rounds.length>30)fail("потрібно 1–30 місій");
- const rounds=input.rounds.map((r,i)=>{
-  if(!r||typeof r!=="object")fail("місія "+(i+1));
-  const label="місія "+(i+1)+": ";
-  const info=text(r.info,5000,label+"немає досьє"),justify=text(r.justify,2000,label+"немає завдання захисту");
-  if(typeof r.review!=="boolean")fail(label+"review має бути true або false");
-  if(!Array.isArray(r.cases)||!r.cases.length||r.cases.length>10)fail(label+"потрібно 1–10 кейсів");
-  if(!Array.isArray(r.research)||r.research.length!==r.cases.length)fail(label+"кожному кейсу потрібне пошукове завдання research");
-  const cases=r.cases.map(c=>{
-   if(!Array.isArray(c)||c.length!==3||!Array.isArray(c[1])||c[1].length<2||c[1].length>6)fail(label+"кейс: [питання, варіанти, індекс відповіді]");
-   if(!Number.isInteger(c[2])||c[2]<0||c[2]>=c[1].length)fail(label+"індекс правильної відповіді починається з 0");
-   return [text(c[0],2000,label+"питання"),c[1].map(v=>text(v,1000,label+"варіант відповіді")),c[2]];
+ if(!Array.isArray(input.levels)||input.levels.length!==3)fail("потрібно рівно 3 рівні");
+ const rules=[{count:6,type:"single",points:10,bonus:10},{count:3,type:"multiple",points:20,bonus:20},{count:3,type:null,points:30,bonus:30}];
+ const levels=input.levels.map((l,li)=>{
+  const rule=rules[li],label="рівень "+(li+1)+": ";
+  if(!l||typeof l!=="object"||!Array.isArray(l.questions)||l.questions.length!==rule.count)fail(label+"має бути рівно "+rule.count+" питань");
+  const questions=l.questions.map((q,qi)=>{
+   const where=label+"питання "+(qi+1)+": ";
+   if(!q||typeof q!=="object")fail(where+"невірний формат");
+   const type=li<2?rule.type:q.type,prompt=text(q.prompt,2000,where+"додайте текст питання");
+   if(li===0||li===1){
+    if(q.type!==type)fail(where+"тип має бути "+type);
+    if(!Array.isArray(q.options)||q.options.length<(li===0?2:3)||q.options.length>8)fail(where+"додайте від "+(li===0?2:3)+" до 8 варіантів");
+    const options=q.options.map(v=>text(v,1000,where+"порожній варіант"));
+    if(type==="single"){
+     if(!Number.isInteger(q.correct)||q.correct<0||q.correct>=options.length)fail(where+"correct — індекс правильної відповіді від 0");
+     return {type,prompt,options,correct:q.correct};
+    }
+    return {type,prompt,options,correct:indexes(q.correct,2,options.length,options.length,where+"correct має містити індекси щонайменше двох правильних варіантів")};
+   }
+   if(type==="matching"){
+    if(!Array.isArray(q.left)||q.left.length<2||q.left.length>8||!Array.isArray(q.right)||q.right.length!==q.left.length)fail(where+"matching потребує однакову кількість 2–8 елементів зліва і справа");
+    const left=q.left.map(v=>text(v,300,where+"порожній елемент зліва")),right=q.right.map(v=>text(v,300,where+"порожній елемент справа"));
+    return {type,prompt,left,right,correct:indexes(q.correct,left.length,left.length,right.length,where+"correct має бути відповідністю індексів правого списку")};
+   }
+   if(type==="ordering"){
+    if(!Array.isArray(q.items)||q.items.length<3||q.items.length>8)fail(where+"ordering потребує 3–8 елементів");
+    const items=q.items.map(v=>text(v,300,where+"порожній елемент"));
+    return {type,prompt,items,correct:indexes(q.correct,items.length,items.length,items.length,where+"correct має бути повною послідовністю індексів")};
+   }
+   fail(where+"type має бути matching або ordering");
   });
-  return {title:text(r.title,120,label+"назва місії"),info,justify,review:r.review,cases,research:r.research.map(v=>text(v,2000,label+"пошукове завдання"))};
+  return {title:text(l.title||("Рівень "+(li+1)),80,label+"назва"),points:rule.points,bonus:rule.bonus,questions};
  });
- const bank={version:1,title,rounds};if(JSON.stringify(bank).length>150000)fail("завеликий файл");return bank;
+ const bank={version:2,title,levels};if(JSON.stringify(bank).length>150000)fail("завеликий файл");return bank;
 }
 function teacherDelete(id,pin){return guard_(()=>{const s=load_(id);auth_(s,pin);sessionFile_(id).setTrashed(true);return true;});}
 
@@ -145,8 +138,9 @@ function teacherDelete(id,pin){return guard_(()=>{const s=load_(id);auth_(s,pin)
 function reportRows_(s){
  const ranked=s.teams.filter(t=>t.access).slice().sort((a,b)=>b.score-a.score);
  let previous=null,place=0;
- const rows=[["Місце","Команда","Склад команди","Учасників","Бали команди","Місій завершено","Усього місій","Стан"]];
- ranked.forEach((t,i)=>{if(t.score!==previous)place=i+1;previous=t.score;rows.push([place,t.name,t.members.join("; "),t.members.length,t.score,t.stage,s.bank.rounds.length,t.stage>=s.bank.rounds.length?"Усі місії завершено":t.pending?"Очікує перевірки":s.status==="finished"?"Гру завершено":"У процесі"]);});
+ const total=totalQuestions_(s.bank);
+ const rows=[["Місце","Команда","Склад команди","Учасників","Бали команди","Питань завершено","Усього питань","Стан"]];
+ ranked.forEach((t,i)=>{if(t.score!==previous)place=i+1;previous=t.score;rows.push([place,t.name,t.members.join("; "),t.members.length,t.score,t.completedQuestions,total,t.completedQuestions>=total?"Усі питання завершено":s.status==="finished"?"Гру завершено":"У процесі"]);});
  return rows;
 }
 function xml_(v){return String(v).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;"}[c]));}
@@ -156,8 +150,8 @@ function sheetXml_(rows,widths){
 }
 function teacherExportXlsx(id,pin){
  const s=load_(id);auth_(s,pin);
- const detail=[["Команда","Прізвище учасника","Бали команди","Місій завершено"]];
- s.teams.filter(t=>t.access).forEach(t=>t.members.forEach(m=>detail.push([t.name,m,t.score,t.stage])));
+ const detail=[["Команда","Прізвище учасника","Бали команди","Питань завершено"]];
+ s.teams.filter(t=>t.access).forEach(t=>t.members.forEach(m=>detail.push([t.name,m,t.score,t.completedQuestions])));
  const parts={
  '[Content_Types].xml':'<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
  '_rels/.rels':'<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',

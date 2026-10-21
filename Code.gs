@@ -189,12 +189,13 @@ function validateBank_(input){
 function teacherDelete(id,pin){return guard_(()=>{const s=load_(id);auth_(s,pin);sessionFile_(id).setTrashed(true);return true;});}
 
 /** Minimal OOXML exporter: text cells are inline strings, never formulas. No external service. */
+function gradeFromScore_(score){return Math.round(1+11*Math.max(0,Math.min(630,Number(score)||0))/630);}
 function reportRows_(s){
  const ranked=s.teams.filter(t=>t.access).slice().sort((a,b)=>b.score-a.score);
  let previous=null,place=0;
  const total=totalQuestions_(s.bank);
- const rows=[["Місце","Команда","Склад команди","Учасників","Бали команди","Спроб використано","Усього питань","Стан"]];
- ranked.forEach((t,i)=>{if(t.score!==previous)place=i+1;previous=t.score;rows.push([place,t.name,t.members.join("; "),t.members.length,t.score,t.completedQuestions,total,t.completedQuestions>=total?"Усі питання завершено":s.status==="finished"?"Гру завершено":"У процесі"]);});
+ const rows=[["Місце","Команда","Склад команди","Учасників","Ігрові бали","Оцінка","Спроб використано","Усього питань","Стан"]];
+ ranked.forEach((t,i)=>{if(t.score!==previous)place=i+1;previous=t.score;rows.push([place,t.name,t.members.join("; "),t.members.length,t.score,s.status==="lobby"?"—":gradeFromScore_(t.score),t.completedQuestions,total,t.completedQuestions>=total?"Усі питання завершено":s.status==="finished"?"Гру завершено":"У процесі"]);});
  return rows;
 }
 function xml_(v){return String(v).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;"}[c]));}
@@ -204,16 +205,16 @@ function sheetXml_(rows,widths){
 }
 function teacherExportXlsx(id,pin){
  const s=load_(id);auth_(s,pin);
- const detail=[["Команда","Прізвище учасника","Бали команди","Спроб використано"]];
- s.teams.filter(t=>t.access).forEach(t=>t.members.forEach(m=>detail.push([t.name,m,t.score,t.completedQuestions])));
+ const detail=[["Команда","Прізвище учасника","Ігрові бали","Оцінка","Спроб використано"]];
+ s.teams.filter(t=>t.access).forEach(t=>t.members.forEach(m=>detail.push([t.name,m,t.score,s.status==="lobby"?"—":gradeFromScore_(t.score),t.completedQuestions])));
  const parts={
  '[Content_Types].xml':'<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
  '_rels/.rels':'<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
  'xl/workbook.xml':'<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Результати команд" sheetId="1" r:id="rId1"/><sheet name="Учасники" sheetId="2" r:id="rId2"/></sheets></workbook>',
  'xl/_rels/workbook.xml.rels':'<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
  'xl/styles.xml':'<?xml version="1.0"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF174A61"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>',
- 'xl/worksheets/sheet1.xml':sheetXml_(reportRows_(s),[10,25,65,12,16,20,18,28]),
- 'xl/worksheets/sheet2.xml':sheetXml_(detail,[25,35,18,20])
+ 'xl/worksheets/sheet1.xml':sheetXml_(reportRows_(s),[10,25,65,12,16,10,20,18,28]),
+ 'xl/worksheets/sheet2.xml':sheetXml_(detail,[25,35,16,10,20])
  };
  const blob=Utilities.zip(Object.keys(parts).map(name=>Utilities.newBlob(parts[name],"application/xml",name)),"results.xlsx");
  return {filename:"Quest_Classroom_"+id+".xlsx",base64:Utilities.base64Encode(blob.getBytes())};

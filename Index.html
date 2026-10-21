@@ -35,8 +35,19 @@ async function exportXlsx(){const r=await call("teacherExportXlsx",sid,pin),byte
 async function join(){const s=await call("publicState",sid);mode="join";$("app").innerHTML='<div class="card"><h2>'+esc(s.title)+'</h2><p>Реєстрація з одного телефона на всю команду.</p><label>Вільний номер команди</label><select id="team">'+s.teams.filter(t=>!t.registered).map(t=>'<option value="'+esc(t.id)+'">'+esc(t.name)+'</option>').join('')+'</select><label>Назва команди</label><input id="teamName" maxlength="40"><label>Прізвища всіх учасників — кожне з нового рядка</label><textarea id="surnames" rows="6" maxlength="2000" placeholder="Шевченко&#10;Коваль&#10;Бондар"></textarea><button '+(s.status!=='lobby'||s.teams.every(t=>t.registered)?'disabled':'')+' onclick="action(register)">Зареєструвати команду</button><button class="secondary" onclick="action(join)">Оновити список</button><button class="secondary" onclick="teacherLogin()">Я вчитель</button></div><div class="card"><h3>Відновити доступ команди</h3><select id="recoverTeam">'+s.teams.filter(t=>t.registered).map(t=>'<option value="'+esc(t.id)+'">'+esc(t.name)+'</option>').join('')+'</select><label>Код відновлення</label><input id="recoveryCode" maxlength="12"><button onclick="action(recover)">Відновити</button></div>'}
 async function register(){const r=await call("registerTeam",sid,$("team").value,$("teamName").value,$("surnames").value);token=r.token;localStorage.setItem("qc_token_"+sid,token);mode="student";await student()}
 async function recover(){const r=await call("recoverTeam",sid,$("recoverTeam").value,$("recoveryCode").value);token=r.token;localStorage.setItem("qc_token_"+sid,token);mode="student";await student()}
-async function student(){const s=await call("studentState",sid,token);if(s.stage!==lastStage||s.step!==lastStep){choice=-1;draft="";evidenceDraft={device:"",purpose:"",specs:"",source:""};lastStage=s.stage;lastStep=s.step}last=s;if(document.activeElement&&(document.activeElement.id==="written"||document.activeElement.id.startsWith("e_"))&&s.status==="running"&&!s.emergency&&!s.pending&&!s.lockSeconds){loop();return}drawStudent(s);
- const step=s.step||0, mission=s.mission,stepTitle=["Збір доказів","Діагностика","Захист рішення"][step];
+async function student(){
+ const s=await call("studentState",sid,token);
+ if(s.stage!==lastStage||s.step!==lastStep){choice=-1;draft="";evidenceDraft={device:"",purpose:"",specs:"",source:""};lastStage=s.stage;lastStep=s.step}
+ last=s;
+ if(document.activeElement&&(document.activeElement.id==="written"||document.activeElement.id.startsWith("e_"))&&s.status==="running"&&!s.pending&&!s.lockSeconds){loop();return}
+ drawStudent(s);
+ if(s.status==="finished"||s.completed)clearTimeout(timer);else loop();
+}
+function drawStudent(s){
+ if(s.status==="lobby"){$("app").innerHTML='<div class="card center"><h2>Команду зареєстровано!</h2><p>'+esc(s.team)+'</p><p class="muted">Очікуємо, поки вчитель почне гру.</p><p>Код відновлення: <b>'+esc(s.recovery)+'</b></p></div>';return}
+ if(s.status==="paused"){$("app").innerHTML='<div class="card center"><h2>⏸ Пауза</h2><p>Учитель призупинив гру.</p></div>';return}
+ if(s.status==="finished"||s.completed){$("app").innerHTML='<div class="card center"><h2>🏆 Гру завершено</h2><p>'+esc(s.team)+' — '+s.score+' балів</p></div>';return}
+ const step=s.step||0,mission=s.mission,stepTitle=["Збір доказів","Діагностика","Захист рішення"][step];
  $("app").innerHTML='<div class="card"><div class="row between"><h2>'+esc(s.team)+'</h2><span class="tag">Місія '+(s.stage+1)+'/'+s.total+' · '+(step+1)+'/3</span></div><p class="muted">Командна відповідь · '+s.score+' балів</p></div>'+
  (s.lockSeconds?'<div class="card alert center"><h2>🔒 Штрафне блокування</h2><h1>00:'+String(s.lockSeconds).padStart(2,"0")+'</h1><p>Протягом штрафу не можна надсилати відповіді.</p></div>':"")+
  (s.pending?'<div class="card"><h2>⏳ Очікуємо перевірки</h2><p>Учитель аналізує обґрунтування команди.</p></div>':

@@ -45,7 +45,7 @@ function studentState(id,token){
  const completed=t.level>=s.bank.levels.length;
  const st={status:s.status,team:t.name,recovery:t.recovery,score:t.score,level:t.level,questionIndex:t.question,
   completedQuestions:t.completedQuestions,totalQuestions:totalQuestions_(s.bank),title:s.bank.title,completed};
- if(completed||s.status==="finished")st.answerKey=s.bank.levels.map(l=>({title:l.title,questions:l.questions.map(q=>({prompt:q.prompt,answer:revealAnswer_(q)}))}));
+ if(s.status==="finished")st.answerKey=s.bank.levels.map(l=>({title:l.title,questions:l.questions.map(q=>({prompt:q.prompt,answer:revealAnswer_(q)}))}));
  if(s.status!=="running"||completed)return st;
  const level=s.bank.levels[t.level],q=question_(s,t),question={type:q.type,prompt:q.prompt};
  if(q.options)question.options=q.options.slice();
@@ -175,7 +175,7 @@ function reportRows_(s){
  const ranked=s.teams.filter(t=>t.access).slice().sort((a,b)=>b.score-a.score);
  let previous=null,place=0;
  const total=totalQuestions_(s.bank);
- const rows=[["Місце","Команда","Склад команди","Учасників","Бали команди","Питань завершено","Усього питань","Стан"]];
+ const rows=[["Місце","Команда","Склад команди","Учасників","Бали команди","Спроб використано","Усього питань","Стан"]];
  ranked.forEach((t,i)=>{if(t.score!==previous)place=i+1;previous=t.score;rows.push([place,t.name,t.members.join("; "),t.members.length,t.score,t.completedQuestions,total,t.completedQuestions>=total?"Усі питання завершено":s.status==="finished"?"Гру завершено":"У процесі"]);});
  return rows;
 }
@@ -186,7 +186,7 @@ function sheetXml_(rows,widths){
 }
 function teacherExportXlsx(id,pin){
  const s=load_(id);auth_(s,pin);
- const detail=[["Команда","Прізвище учасника","Бали команди","Питань завершено"]];
+ const detail=[["Команда","Прізвище учасника","Бали команди","Спроб використано"]];
  s.teams.filter(t=>t.access).forEach(t=>t.members.forEach(m=>detail.push([t.name,m,t.score,t.completedQuestions])));
  const parts={
  '[Content_Types].xml':'<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',

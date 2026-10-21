@@ -46,16 +46,15 @@ function answer(teamToken, allowMistakes=false){
   const level=bank.levels[levelIndex];
   for(let qi=0;qi<level.questions.length;qi++){
    const q=level.questions[qi],value=expectedAnswer(q);
-   if(allowMistakes&&first){
-    const wrong=q.type==="single"?(q.correct===0?1:0):q.type==="multiple"?[0,1]:q.type==="matching"?q.correct.map((_,i)=>i===0?0:i):q.type==="ordering"?q.correct.slice().reverse():q.type==="spotError"?{errorIndex:q.correct,correctionIndex:(q.correctCorrection+1)%q.corrections.length}:"неправильна відповідь";
+   const shouldMissFirst=allowMistakes&&first;
+   const shouldMissFix=allowMistakes&&q.type==="spotError"&&qi===0;
+   if(shouldMissFirst||shouldMissFix){
+    const wrong=shouldMissFix?{errorIndex:q.correct,correctionIndex:(q.correctCorrection+1)%q.corrections.length}:q.type==="single"?(q.correct===0?1:0):q.type==="multiple"?[0,1]:q.type==="matching"?q.correct.map((_,i)=>i===0?0:i):q.type==="ordering"?q.correct.slice().reverse():q.type==="spotError"?{errorIndex:q.correct,correctionIndex:(q.correctCorrection+1)%q.corrections.length}:"неправильна відповідь";
     const result=ctx.answerQuestion(id,teamToken,wrong,levelIndex,qi);assert.equal(result.correct,false);
-    assert.equal(ctx.studentState(id,teamToken).questionIndex,qi);
-    assert.throws(()=>ctx.answerQuestion(id,teamToken,value,levelIndex,qi+1),'stale question guard');
-    first=false;
-   }
-   if(allowMistakes&&q.type==="spotError"&&qi===0){
-    const wrongFix={errorIndex:q.correct,correctionIndex:(q.correctCorrection+1)%q.corrections.length};
-    assert.equal(ctx.answerQuestion(id,teamToken,wrongFix,levelIndex,qi).correct,false,'wrong correction must fail');
+    assert.equal(ctx.studentState(id,teamToken).questionIndex,qi+1,'a submitted wrong answer advances without retry');
+    assert.throws(()=>ctx.answerQuestion(id,teamToken,value,levelIndex,qi),'the submitted question cannot be answered again');
+    if(shouldMissFirst)first=false;
+    continue;
    }
    const result=ctx.answerQuestion(id,teamToken,value,levelIndex,qi);
    assert.equal(result.correct,true);
@@ -64,7 +63,7 @@ function answer(teamToken, allowMistakes=false){
 }
 answer(token,true);answer(token2,false);
 assert(ctx.studentState(id,token).completed);assert(ctx.studentState(id,token2).completed);
-assert.equal(ctx.teacherState(id,'1234').teams[0].score,580,'mistakes on levels 1 and 4 remove only those level bonuses');
+assert.equal(ctx.teacherState(id,'1234').teams[0].score,530,'wrong answers earn no points and remove only their level bonuses');
 assert.equal(ctx.teacherState(id,'1234').teams[1].score,630,'perfect run earns all points and bonuses');
 assert.equal(ctx.teacherState(id,'1234').teams[0].completedQuestions,18);
 assert.throws(()=>ctx.teacherExportXlsx(id,'bad'));
@@ -72,10 +71,10 @@ const xlsx=ctx.teacherExportXlsx(id,'1234');assert(xlsx.filename.endsWith('.xlsx
 assert(archive['xl/worksheets/sheet1.xml'].includes('Шевченко; Коваль; Коваль'));
 assert(archive['xl/worksheets/sheet2.xml'].includes('=HYPERLINK(&quot;test&quot;)'));
 assert(!archive['xl/worksheets/sheet2.xml'].includes('<f>'));
-assert(archive['xl/worksheets/sheet1.xml'].includes('<v>580</v>'));
+assert(archive['xl/worksheets/sheet1.xml'].includes('<v>530</v>'));
 assert(archive['xl/worksheets/sheet2.xml'].includes('Питань завершено'));
 if(process.env.QC_TEST_PARTS)fs.writeFileSync(process.env.QC_TEST_PARTS,JSON.stringify(archive));
 const other=ctx.createSession(1,{...bank,title:'Інша тема'},'5678').id;
 assert.equal(ctx.publicState(other).title,'Інша тема');assert.equal(ctx.publicState(id).title,bank.title);
 ctx.teacherControl(id,'1234','finish');ctx.teacherDelete(id,'1234');assert.throws(()=>ctx.publicState(id));assert.equal(ctx.publicState(other).status,'lobby');
-console.log('PASS: v2 schema, 5 levels and 18 questions across all types, team registration, recovery, answer retries, scoring and bonuses, privacy, XLSX export, isolation and deletion');
+console.log('PASS: v2 schema, 5 levels and 18 questions across all types, team registration, recovery, single-attempt answers, scoring and bonuses, privacy, XLSX export, isolation and deletion');

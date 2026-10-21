@@ -67,33 +67,51 @@ function revealAnswer_(q){
  if(q.type==="shortAnswer")return q.answers.join(" / ");
  return "";
 }
+function questionScore_(q,ans,points){
+ const partial=(parts,total)=>Math.min(points,Math.max(0,Math.round(points/total)*parts));
+ if(q.type==="single")return {earned:Number.isInteger(ans)&&ans===q.correct?points:0,correct:Number.isInteger(ans)&&ans===q.correct};
+ if(q.type==="multiple"){
+  if(!Array.isArray(ans)||ans.some(v=>!Number.isInteger(v)||v<0||v>=q.options.length)||new Set(ans).size!==ans.length)return {earned:0,correct:false};
+  const expected=new Set(q.correct),hits=ans.filter(v=>expected.has(v)).length,misses=ans.filter(v=>!expected.has(v)).length;
+  const correct=hits===q.correct.length&&misses===0;
+  return {earned:correct?points:partial(hits-misses,q.correct.length),correct};
+ }
+ if(q.type==="matching"){
+  if(!Array.isArray(ans)||ans.length!==q.correct.length||ans.some(v=>!Number.isInteger(v)||v<0||v>=q.right.length))return {earned:0,correct:false};
+  const hits=ans.filter((v,i)=>v===q.correct[i]).length,correct=hits===q.correct.length;
+  return {earned:correct?points:partial(hits,q.correct.length),correct};
+ }
+ if(q.type==="ordering"){
+  if(!Array.isArray(ans)||ans.length!==q.correct.length||ans.some(v=>!Number.isInteger(v)||v<0||v>=q.items.length)||new Set(ans).size!==ans.length)return {earned:0,correct:false};
+  const hits=ans.filter((v,i)=>v===q.correct[i]).length,correct=hits===q.correct.length;
+  return {earned:correct?points:partial(hits,q.correct.length),correct};
+ }
+ if(q.type==="spotError"){
+  const found=!!ans&&typeof ans==="object"&&ans.errorIndex===q.correct,fixed=!!ans&&typeof ans==="object"&&ans.correctionIndex===q.correctCorrection;
+  const correct=found&&fixed;return {earned:correct?points:partial((found?1:0)+(fixed?1:0),2),correct};
+ }
+ if(q.type==="shortAnswer"){
+  const correct=typeof ans==="string"&&q.answers.some(v=>normalizeAnswer_(v)===normalizeAnswer_(ans));return {earned:correct?points:0,correct};
+ }
+ throw Error("Невідомий тип питання");
+}
 function answerQuestion(id,token,ans,expectedLevel,expectedQuestion){
  return guard_(()=>{
   const s=load_(id),{t}=find_(s,token);
   if(s.status!=="running"||t.level>=s.bank.levels.length)throw Error("Зараз відповідь недоступна");
   if(expectedLevel!==t.level||expectedQuestion!==t.question)throw Error("Питання вже змінилося. Оновіть екран.");
-  const level=s.bank.levels[t.level],q=question_(s,t);let correct=false;
-  if(q.type==="single")correct=Number.isInteger(ans)&&ans===q.correct;
-  else if(q.type==="multiple")correct=sameNumbers_(ans,q.correct);
-  else if(q.type==="matching")correct=sameNumbers_(ans,q.correct);
-  else if(q.type==="ordering")correct=Array.isArray(ans)&&ans.length===q.correct.length&&ans.every(Number.isInteger)&&ans.every((v,i)=>v===q.correct[i]);
-  else if(q.type==="spotError")correct=!!ans&&typeof ans==="object"&&ans.errorIndex===q.correct&&ans.correctionIndex===q.correctCorrection;
-  else if(q.type==="shortAnswer")correct=typeof ans==="string"&&q.answers.some(v=>normalizeAnswer_(v)===normalizeAnswer_(ans));
-  else throw Error("Невідомий тип питання");
-  if(!correct){
-   t.levelErrors++;t.completedQuestions++;t.question++;
-   let bonus=0,levelComplete=t.question>=level.questions.length;
-   if(levelComplete){if(t.levelErrors===0){bonus=level.bonus;t.score+=bonus;}t.level++;t.question=0;t.levelErrors=0;}
-   store_(s);
-   return {correct:false,base:0,bonus,levelComplete,completed:t.level>=s.bank.levels.length,
-    message:"Неправильно. Спробу зараховано, виправити відповідь уже не можна. Бонус за рівень втрачено."};
-  }
-  const base=level.points;t.score+=base;t.completedQuestions++;t.question++;
+  const level=s.bank.levels[t.level],q=question_(s,t),result=questionScore_(q,ans,level.points),earned=result.earned,correct=result.correct;
+  t.score+=earned;t.completedQuestions++;t.question++;
+  if(!correct)t.levelErrors++;
   let bonus=0,levelComplete=t.question>=level.questions.length;
   if(levelComplete){if(t.levelErrors===0){bonus=level.bonus;t.score+=bonus;}t.level++;t.question=0;t.levelErrors=0;}
   store_(s);
-  return {correct:true,base,bonus,levelComplete,completed:t.level>=s.bank.levels.length,
-   message:"Правильно! +"+base+(bonus?" і бонус рівня +"+bonus:"")+" балів."};
+  if(!correct){
+   return {correct:false,base:earned,bonus,levelComplete,completed:t.level>=s.bank.levels.length,
+    message:(earned?"Частково правильно: +"+earned+" балів. ":"Неправильно: 0 балів. ")+"Спробу зараховано, виправити відповідь уже не можна. Бонус за рівень втрачено."};
+  }
+  return {correct:true,base:earned,bonus,levelComplete,completed:t.level>=s.bank.levels.length,
+   message:"Правильно! +"+earned+(bonus?" і бонус рівня +"+bonus:"")+" балів."};
  });
 }
 function teacherState(id,pin){

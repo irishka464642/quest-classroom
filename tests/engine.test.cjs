@@ -48,24 +48,45 @@ function answer(teamToken, allowMistakes=false){
   for(let qi=0;qi<level.questions.length;qi++){
    const q=level.questions[qi],value=expectedAnswer(q);
    const shouldMissFirst=allowMistakes&&first;
-   const shouldMissFix=allowMistakes&&q.type==="spotError"&&qi===0;
-   if(shouldMissFirst||shouldMissFix){
-    const wrong=shouldMissFix?{errorIndex:q.correct,correctionIndex:(q.correctCorrection+1)%q.corrections.length}:q.type==="single"?(q.correct===0?1:0):q.type==="multiple"?[0,1]:q.type==="matching"?q.correct.map((_,i)=>i===0?0:i):q.type==="ordering"?q.correct.slice().reverse():q.type==="spotError"?{errorIndex:q.correct,correctionIndex:(q.correctCorrection+1)%q.corrections.length}:"неправильна відповідь";
-    const result=ctx.answerQuestion(id,teamToken,wrong,levelIndex,qi);assert.equal(result.correct,false);assert.equal(result.correctAnswer,undefined);
+   const shouldPartialMultiple=allowMistakes&&levelIndex===1&&qi===0;
+   const shouldPartialMatching=allowMistakes&&levelIndex===2&&q.type==="matching"&&qi===0;
+   const shouldPartialOrdering=allowMistakes&&levelIndex===2&&q.type==="ordering";
+   const shouldPartialErrorFix=allowMistakes&&q.type==="spotError"&&qi===0;
+   if(shouldMissFirst){
+    const wrong=q.correct===0?1:0;
+    const result=ctx.answerQuestion(id,teamToken,wrong,levelIndex,qi);assert.equal(result.correct,false);assert.equal(result.base,0);
     assert.equal(ctx.studentState(id,teamToken).questionIndex,qi+1,'a submitted wrong answer advances without retry');
     assert.throws(()=>ctx.answerQuestion(id,teamToken,value,levelIndex,qi),'the submitted question cannot be answered again');
-    if(shouldMissFirst)first=false;
-    continue;
+    first=false;continue;
+   }
+   if(shouldPartialMultiple){
+    const result=ctx.answerQuestion(id,teamToken,[...q.correct,3],levelIndex,qi);
+    assert.equal(result.correct,false);assert.equal(result.base,14,'20 / 3 rounds to 7, with one wrong selection deducted');continue;
+   }
+   if(shouldPartialMatching){
+    const partial=q.correct.slice();partial[0]=(partial[0]+1)%q.right.length;
+    const result=ctx.answerQuestion(id,teamToken,partial,levelIndex,qi);
+    assert.equal(result.correct,false);assert.equal(result.base,20,'two of three matches earn 20 points');continue;
+   }
+   if(shouldPartialOrdering){
+    const partial=q.correct.slice();[partial[1],partial[2]]=[partial[2],partial[1]];
+    const result=ctx.answerQuestion(id,teamToken,partial,levelIndex,qi);
+    assert.equal(result.correct,false);assert.equal(result.base,16,'two correct positions earn 16 points');continue;
+   }
+   if(shouldPartialErrorFix){
+    const partial={errorIndex:q.correct,correctionIndex:(q.correctCorrection+1)%q.corrections.length};
+    const result=ctx.answerQuestion(id,teamToken,partial,levelIndex,qi);
+    assert.equal(result.correct,false);assert.equal(result.base,20,'one of two parts earns 20 points');continue;
    }
    const result=ctx.answerQuestion(id,teamToken,value,levelIndex,qi);
-   assert.equal(result.correct,true);assert.equal(result.correctAnswer,undefined);
+   assert.equal(result.correct,true);assert.equal(result.base,[10,20,30,40,50][levelIndex]);assert.equal(result.correctAnswer,undefined);
   }
  }
 }
 answer(token,true);answer(token2,false);
 assert(ctx.studentState(id,token).completed);assert(ctx.studentState(id,token2).completed);
 assert.equal(ctx.studentState(id,token).answerKey,undefined,'completed teams wait until the teacher ends the whole session');
-assert.equal(ctx.teacherState(id,'1234').teams[0].score,530,'wrong answers earn no points and remove only their level bonuses');
+assert.equal(ctx.teacherState(id,'1234').teams[0].score,470,'partial points apply and each imperfect level loses its bonus');
 assert.equal(ctx.teacherState(id,'1234').teams[1].score,630,'perfect run earns all points and bonuses');
 assert.equal(ctx.teacherState(id,'1234').teams[0].completedQuestions,18);
 assert.throws(()=>ctx.teacherExportXlsx(id,'bad'));
@@ -73,7 +94,7 @@ const xlsx=ctx.teacherExportXlsx(id,'1234');assert(xlsx.filename.endsWith('.xlsx
 assert(archive['xl/worksheets/sheet1.xml'].includes('Шевченко; Коваль; Коваль'));
 assert(archive['xl/worksheets/sheet2.xml'].includes('=HYPERLINK(&quot;test&quot;)'));
 assert(!archive['xl/worksheets/sheet2.xml'].includes('<f>'));
-assert(archive['xl/worksheets/sheet1.xml'].includes('<v>530</v>'));
+assert(archive['xl/worksheets/sheet1.xml'].includes('<v>470</v>'));
 assert(archive['xl/worksheets/sheet2.xml'].includes('Спроб використано'));
 if(process.env.QC_TEST_PARTS)fs.writeFileSync(process.env.QC_TEST_PARTS,JSON.stringify(archive));
 const other=ctx.createSession(1,{...bank,title:'Інша тема'},'5678').id;
@@ -82,4 +103,4 @@ ctx.teacherControl(id,'1234','finish');
 assert.equal(ctx.studentState(id,token).answerKey.length,5,'answer key is released to all teams after session finish');
 assert.match(ctx.studentState(id,token).answerKey[0].questions[0].answer,/Знайти надійне джерело/);
 ctx.teacherDelete(id,'1234');assert.throws(()=>ctx.publicState(id));assert.equal(ctx.publicState(other).status,'lobby');
-console.log('PASS: v2 schema, 5 levels and 18 questions across all types, team registration, recovery, single-attempt answers, scoring and bonuses, privacy, XLSX export, isolation and deletion');
+console.log('PASS: v2 schema, 5 levels and 18 questions across all types, team registration, recovery, single attempts, partial scoring and bonuses, privacy, XLSX export, isolation and deletion');

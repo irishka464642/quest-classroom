@@ -88,6 +88,7 @@ assert(ctx.studentState(id,token).completed);assert(ctx.studentState(id,token2).
 assert.equal(ctx.studentState(id,token).answerKey,undefined,'completed teams wait until the teacher ends the whole session');
 assert.equal(ctx.teacherState(id,'1234').teams[0].score,470,'partial points apply and each imperfect level loses its bonus');
 assert.equal(ctx.teacherState(id,'1234').teams[1].score,630,'perfect run earns all points and bonuses');
+assert.equal(ctx.gradeFromScore_(0),1);assert.equal(ctx.gradeFromScore_(480),9);assert.equal(ctx.gradeFromScore_(630),12);
 assert.equal(ctx.teacherState(id,'1234').teams[0].completedQuestions,18);
 assert.throws(()=>ctx.teacherExportXlsx(id,'bad'));
 const xlsx=ctx.teacherExportXlsx(id,'1234');assert(xlsx.filename.endsWith('.xlsx'));assert.equal(Object.keys(archive).length,7);
@@ -95,6 +96,10 @@ assert(archive['xl/worksheets/sheet1.xml'].includes('Шевченко; Кова�
 assert(archive['xl/worksheets/sheet2.xml'].includes('=HYPERLINK(&quot;test&quot;)'));
 assert(!archive['xl/worksheets/sheet2.xml'].includes('<f>'));
 assert(archive['xl/worksheets/sheet1.xml'].includes('<v>470</v>'));
+assert(archive['xl/worksheets/sheet1.xml'].includes('Оцінка'));
+assert(archive['xl/worksheets/sheet1.xml'].includes('<c r="F2" s="2"><v>12</v></c>'));
+assert(archive['xl/worksheets/sheet1.xml'].includes('<c r="F3" s="2"><v>9</v></c>'));
+assert(archive['xl/worksheets/sheet2.xml'].includes('Оцінка'));
 assert(archive['xl/worksheets/sheet2.xml'].includes('Спроб використано'));
 if(process.env.QC_TEST_PARTS)fs.writeFileSync(process.env.QC_TEST_PARTS,JSON.stringify(archive));
 const other=ctx.createSession(1,{...bank,title:'Інша тема'},'5678').id;

@@ -45,6 +45,7 @@ function studentState(id,token){
  const completed=t.level>=s.bank.levels.length;
  const st={status:s.status,team:t.name,recovery:t.recovery,score:t.score,level:t.level,questionIndex:t.question,
   completedQuestions:t.completedQuestions,totalQuestions:totalQuestions_(s.bank),title:s.bank.title,completed};
+ if(completed||s.status==="finished")st.answerKey=s.bank.levels.map(l=>({title:l.title,questions:l.questions.map(q=>({prompt:q.prompt,answer:revealAnswer_(q)}))}));
  if(s.status!=="running"||completed)return st;
  const level=s.bank.levels[t.level],q=question_(s,t),question={type:q.type,prompt:q.prompt};
  if(q.options)question.options=q.options.slice();
@@ -57,6 +58,15 @@ function studentState(id,token){
  return st;
 }
 function sameNumbers_(a,b){return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every(Number.isInteger)&&new Set(a).size===a.length&&a.slice().sort((x,y)=>x-y).every((v,i)=>v===b.slice().sort((x,y)=>x-y)[i]);}
+function revealAnswer_(q){
+ if(q.type==="single")return q.options[q.correct];
+ if(q.type==="multiple")return q.correct.map(i=>q.options[i]).join("; ");
+ if(q.type==="matching")return q.left.map((v,i)=>v+" — "+q.right[q.correct[i]]).join("\n");
+ if(q.type==="ordering")return q.correct.map((i,n)=>(n+1)+". "+q.items[i]).join("\n");
+ if(q.type==="spotError")return q.options[q.correct]+" → "+q.corrections[q.correctCorrection];
+ if(q.type==="shortAnswer")return q.answers.join(" / ");
+ return "";
+}
 function answerQuestion(id,token,ans,expectedLevel,expectedQuestion){
  return guard_(()=>{
   const s=load_(id),{t}=find_(s,token);

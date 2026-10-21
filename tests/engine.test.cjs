@@ -1,0 +1,51 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict'),crypto=require('crypto');
+const root=require('path').join(__dirname,'..');
+const server=fs.readFileSync(root+'/Code.gs','utf8'),html=fs.readFileSync(root+'/Index.html','utf8');
+new vm.Script(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
+const files=new Map(),props=new Map();let archive;
+const folder={getId:()=> 'folder',getFilesByName(name){let f=files.get(name),used=false;return {hasNext:()=>!!f&&!used&&!f.trashed,next(){used=true;return f}}},createFile(name,data){const f={data,setContent(d){this.data=d},getBlob(){return {getDataAsString:()=>this.data}},setTrashed(v){this.trashed=v}};files.set(name,f);return f}};
+const ctx=vm.createContext({console,Utilities:{getUuid:()=>crypto.randomUUID(),newBlob:(data,type,name)=>({data,type,name}),zip(parts){archive=Object.fromEntries(parts.map(p=>[p.name,p.data]));return {getBytes:()=>Buffer.from('test zip')}},base64Encode:b=>Buffer.from(b).toString('base64')},PropertiesService:{getScriptProperties:()=>({getProperty:k=>props.get(k),setProperty:(k,v)=>props.set(k,v)})},DriveApp:{createFolder:()=>folder,getFolderById:()=>folder},MimeType:{PLAIN_TEXT:'text/plain'},LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})}});
+vm.runInContext(server,ctx);
+const bank=JSON.parse(fs.readFileSync(root+'/examples/demo.json'));
+assert.throws(()=>ctx.createSession(0,bank,'1234'));
+assert.throws(()=>ctx.createSession(21,bank,'1234'));
+assert.throws(()=>ctx.createSession(1,{...bank,version:2},'1234'));
+const bad=structuredClone(bank);bad.rounds[0].cases[0][2]=8;assert.throws(()=>ctx.validateBank_(bad));
+const id=ctx.createSession(2,bank,'1234').id;
+assert.throws(()=>ctx.teacherState(id,'0000'));assert.throws(()=>ctx.teacherStart(id,'1234'));
+assert.throws(()=>ctx.registerTeam(id,'t1','Назва',''));
+const token=ctx.registerTeam(id,'t1','Дослідники','Шевченко\nКоваль\nКоваль').token;
+assert.throws(()=>ctx.registerTeam(id,'t1','Зайва','Бондар'));
+assert.throws(()=>ctx.registerTeam(id,'t2','Дослідники','Бондар'));
+let token2=ctx.registerTeam(id,'t2','Друга команда','=HYPERLINK("test")\nІваненко').token;
+assert(!JSON.stringify(ctx.publicState(id)).includes('Шевченко'));
+assert(!JSON.stringify(ctx.publicState(id)).includes(token));
+const recovery=ctx.teacherState(id,'1234').teams[1].recovery;
+assert.throws(()=>ctx.recoverTeam(id,'t2','bad'));
+token2=ctx.recoverTeam(id,'t2',recovery).token;
+ctx.teacherStart(id,'1234');assert.throws(()=>ctx.registerTeam(id,'t2','Запізнились','Бондар'));
+assert(!('role' in ctx.studentState(id,token)));assert(ctx.studentState(id,token).info);
+assert(!JSON.stringify(ctx.studentState(id,token)).includes('cases'));
+const evidence={device:'Повідомлення',purpose:'Перевірка достовірності інформації',specs:'Автор, дата публікації та посилання на докази',source:'Підручник'};
+const text='Пояснення з доказами та посиланням на джерело. '.repeat(4);
+for(let stage=0;stage<2;stage++){
+ ctx.teacherControl(id,'1234','pause');assert.throws(()=>ctx.answerMission(id,token,evidence,stage,0));ctx.teacherControl(id,'1234','resume');
+ ctx.answerMission(id,token,evidence,stage,0);assert.throws(()=>ctx.answerMission(id,token,evidence,stage,0));
+ assert.equal(ctx.answerMission(id,token,1,stage,1).correct,false);
+ assert.equal(ctx.answerMission(id,token,0,stage,1).correct,true);
+ ctx.answerMission(id,token,text,stage,2);
+ if(stage===0){ctx.teacherReview(id,'1234','t1',0,false);ctx.answerMission(id,token,text,stage,2);ctx.teacherReview(id,'1234','t1',80,true)}
+}
+assert(ctx.studentState(id,token).completed);assert.equal(ctx.teacherState(id,'1234').teams[0].score,220);
+assert.throws(()=>ctx.teacherExportXlsx(id,'bad'));
+const xlsx=ctx.teacherExportXlsx(id,'1234');assert(xlsx.filename.endsWith('.xlsx'));assert.equal(Object.keys(archive).length,7);
+assert(archive['xl/worksheets/sheet1.xml'].includes('Шевченко; Коваль; Коваль'));
+assert(archive['xl/worksheets/sheet2.xml'].includes('=HYPERLINK(&quot;test&quot;)'));
+assert(!archive['xl/worksheets/sheet2.xml'].includes('<f>'));
+assert(archive['xl/worksheets/sheet1.xml'].includes('<v>220</v>'));
+// Save only to caller-selected temporary path for XML/package inspection.
+if(process.env.QC_TEST_PARTS)fs.writeFileSync(process.env.QC_TEST_PARTS,JSON.stringify(archive));
+const other=ctx.createSession(1,{...bank,title:'Інша тема'},'5678').id;
+assert.equal(ctx.publicState(other).title,'Інша тема');assert.equal(ctx.publicState(id).title,bank.title);
+ctx.teacherControl(id,'1234','finish');ctx.teacherDelete(id,'1234');assert.throws(()=>ctx.publicState(id));assert.equal(ctx.publicState(other).status,'lobby');
+console.log('PASS: team registration, duplicate surnames, recovery, privacy, no roles, full lifecycle, retries, review/rejection, pause, stale submissions, XLSX data and formula safety, isolation and deletion');

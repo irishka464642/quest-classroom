@@ -31,7 +31,7 @@ function registerTeam(id,tid,name,surnames){return guard_(()=>{
  t.name=name;t.members=members;t.access=uid_();t.recovery=recoveryCode_(s);store_(s);return {token:t.access,recovery:t.recovery};
 });}
 function recoverTeam(id,tid,code){return guard_(()=>{
- const s=load_(id),t=s.teams.find(x=>x.id===tid);if(!t||!t.access||t.recovery!==String(code).trim())throw Error("Невірний код відновлення");
+ const s=load_(id),t=s.teams.find(x=>x.id===tid),value=String(code).trim();if(!/^\d{6}$/.test(value))throw Error("Код має містити 6 цифр");if(!t||!t.access||t.recovery!==value)throw Error("Невірний код відновлення");
  t.access=uid_();store_(s);return {token:t.access};
 });}
 function find_(s,token){const t=s.teams.find(t=>t.access&&t.access===token);if(!t)throw Error("Команду не знайдено");return {t};}
